@@ -25,10 +25,10 @@ transformed with dbt, and published as a **Star Schema** for analytics and BI.
 
 **Highlights**
 
-- Metadata-driven, modular transformations
-- Incremental models and reusable Jinja macros
-- Star Schema with fact and dimension tables
-- Automated data quality tests
+- Metadata-driven, Jinja-generated SQL for the Gold layer
+- Incremental models and reusable macros
+- Star Schema with one fact table and three dimension tables
+- Generic data quality tests on keys, relationships and accepted values
 - SCD Type 2 history tracking via dbt snapshots
 
 ## Architecture
@@ -78,35 +78,67 @@ transformed with dbt, and published as a **Star Schema** for analytics and BI.
 | Layer | Purpose | Models |
 |-------|---------|--------|
 | 🥉 **Bronze** | Raw ingestion, minimal transformation, history preserved | `bronze_bookings`, `bronze_hosts`, `bronze_listings` |
-| 🥈 **Silver** | Cleaned, typed, standardized, with business logic | `silver_bookings`, `silver_hosts`, `silver_listings` |
-| 🥇 **Gold** | Business-ready Star Schema (facts and dimensions) | `fact`, `obt`, ephemeral helper models |
+| 🥈 **Silver** | Cleaned, typed, standardized, with business logic | `silver_bookings`, `silver_host`, `silver_listings` |
+| 🥇 **Gold** | Business-ready Star Schema (facts and dimensions) | `one_big_table`, `fact`, ephemeral `dim_bookings`, `dim_host`, `dim_listings` |
 
 ## Data Source
 
-<!-- Fill this in -->
-- **Dataset:** [describe the dataset and its entities]
-- **Ingestion:** [e.g. S3 external stage + `COPY INTO`, or Snowpipe]
+- **Dataset:** Airbnb-style booking data with three entities: **bookings**, **listings** and **hosts**.
+- **Ingestion:** Raw files land in AWS S3 and are loaded into Snowflake, where dbt reads them through the sources defined in `models/sources/sources.yml`.
+
+## Star Schema
+
+The Gold layer first joins the Silver tables into a single wide table (`one_big_table`), then splits it into one fact table and three dimensions.
+
+<p align="center">
+  <img src="awsS3_snowflake_dbtCore_project/models/3.gold/star_schema.png" alt="Star schema ERD" width="800"/>
+</p>
+
+| Table | Type | Grain / contents |
+|-------|------|------------------|
+| `dim_bookings` | Dimension | One row per booking: date, status, created timestamp |
+| `dim_listings` | Dimension | One row per listing: property type, room type, location, capacity, price tier |
+| `dim_host` | Dimension | One row per host: name, tenure, superhost flag, response rate and quality |
+| `fact` | Fact | One row per booking: keys to the three dimensions plus amounts and fees |
 
 ## Project Structure
 
 ```text
-.
+awsS3_snowflake_dbtCore_project/
 ├── models/
 │   ├── sources/            # Source definitions (sources.yml)
-│   ├── bronze/             # Raw layer
-│   ├── silver/             # Cleaned layer
-│   └── gold/               # Star Schema + ephemeral/ helper models
+│   ├── 1.bronze/           # Raw layer
+│   ├── 2.silver/           # Cleaned layer
+│   ├── 3.gold/             # one_big_table, fact, and ephemeral/ dimension models
+│   ├── demo/               # Practice models
+│   └── tests.yml           # Generic data quality tests
 ├── macros/                 # Reusable Jinja/SQL (schema naming, tagging, helpers)
-├── snapshots/              # SCD Type 2 configurations
-├── tests/                  # Singular data quality tests
+├── snapshots/              # SCD Type 2 configurations for the dimensions
 ├── analyses/               # Ad-hoc exploration queries
 ├── seeds/                  # Static reference data
+├── tests/                  # Singular tests (none yet)
 └── dbt_project.yml
 ```
 
 ## Key Features
 
-**Incremental loading.** Large models process only new or changed rows:
+**Metadata-driven SQL.** The Gold layer builds its joins from a Jinja config list (table, columns, alias, join condition) instead of hand-written SQL. Adding a table means adding one entry to the list:
+
+```sql
+{% set configs = [
+    {"table": "...SILVER_BOOKINGS", "columns": "SILVER_BOOKINGS.*", "alias": "SILVER_BOOKINGS"},
+    {"table": "...SILVER_LISTINGS", "columns": "SILVER_LISTINGS.HOST_ID, ...", "alias": "SILVER_LISTINGS",
+     "join_condition": "SILVER_BOOKINGS.LISTING_ID = SILVER_LISTINGS.LISTING_ID"}
+] %}
+
+SELECT
+    {% for item in configs %}
+        {{ item['columns'] }}{% if not loop.last %},{% endif %}
+    {% endfor %}
+FROM ...
+```
+
+**Incremental loading.** Large models process only new or changed rows (simplified example):
 
 ```sql
 {{ config(materialized='incremental') }}
@@ -119,18 +151,19 @@ select * from {{ source('staging', 'bookings') }}
 
 **Reusable macros.** Business logic lives in macros instead of being copy-pasted across models.
 
-**Dynamic SQL with Jinja.** Loops and config lists keep joins in the Gold layer maintainable.
+**Ephemeral dimensions.** The dimension models are ephemeral, so dbt inlines them as CTEs instead of creating extra tables in Snowflake.
 
-**Slowly Changing Dimensions (Type 2).** Snapshots track historical changes with valid-from / valid-to dates for point-in-time analysis.
+**Slowly Changing Dimensions (Type 2).** Snapshots on `dim_bookings`, `dim_hosts` and `dim_listings` track historical changes with valid-from / valid-to dates.
 
-**Schema organization.** A custom `generate_schema_name` macro routes each layer to its own schema (`BRONZE`, `SILVER`, `GOLD`).
+**Schema organization.** A custom `generate_schema_name` macro routes each layer to its own schema (`MEDALLION_BRONZE`, `MEDALLION_SILVER`, `MEDALLION_GOLD`).
 
 ## Data Quality
 
-- Not-null and unique key checks
-- Referential integrity (relationships) tests
-- Source data validation
-- Custom business-rule tests in `tests/`
+Generic tests are defined in `models/tests.yml`:
+
+- `not_null` and `unique` on primary keys
+- `relationships` tests between bookings, listings and hosts
+- `accepted_values` on categorical columns such as booking status, property type, room type and the superhost flag
 
 ## Getting Started
 
@@ -141,12 +174,13 @@ git clone https://github.com/labbdogg/dbt-analytics-platform.git
 cd dbt-analytics-platform
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
 pip install dbt-snowflake
+cd awsS3_snowflake_dbtCore_project
 ```
 
-Add this to `~/.dbt/profiles.yml` (never commit credentials):
+Add this to `~/.dbt/profiles.yml` (never commit credentials). The profile name must match `profile:` in `dbt_project.yml`:
 
 ```yaml
-dbt_analytics_platform:
+awsS3_snowflake_dbtCore_project:
   target: dev
   outputs:
     dev:
@@ -161,12 +195,12 @@ dbt_analytics_platform:
       threads: 4
 ```
 
-Run it:
+Run it from the `awsS3_snowflake_dbtCore_project` folder:
 
 ```bash
 dbt debug                               # verify connection
 dbt build                               # models + tests + snapshots
-dbt run --select bronze                 # or silver / gold
+dbt run --select 1.bronze               # or 2.silver / 3.gold
 dbt run --full-refresh                  # rebuild incremental models
 dbt docs generate && dbt docs serve     # docs and lineage
 ```
@@ -176,15 +210,10 @@ dbt docs generate && dbt docs serve     # docs and lineage
 dbt builds a DAG of model dependencies automatically. Run
 `dbt docs generate && dbt docs serve` to explore this project's lineage locally.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/dbt-labs/dbt-core/6c6649f9129d5d108aa3b0526f634cd8f3a9d1ed/etc/dbt-dag.png" alt="Example dbt DAG" width="700"/>
-  <br/>
-  <em>Illustrative dbt DAG (source: dbt Labs)</em>
-</p>
-
 ## Future Enhancements
 
 - [ ] CI/CD with automated `dbt build` on pull requests
+- [ ] Singular business-rule tests in `tests/`
 - [ ] Data quality dashboards and alerting
 - [ ] BI layer on top of the Gold models
 
