@@ -1,0 +1,13 @@
+snapshots:
+  - name: dim_bookings_snapshot
+    relation: ref('dim_bookings')
+    config:
+      schema: MEDALLION_GOLD
+      database: DBT_ANALYTICS_PLATFORM_BUCKET
+      unique_key: BOOKING_ID
+      strategy: timestamp
+      updated_at: CREATED_AT
+      dbt_valid_to_current: "to_date('9999-12-31')"
+      hard_deletes: ignore
+      # strategy: check
+      # check_cols: [BOOKING_STATUS]

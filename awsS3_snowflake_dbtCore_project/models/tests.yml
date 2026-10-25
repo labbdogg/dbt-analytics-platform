@@ -1,0 +1,78 @@
+models:
+  - name: bronze_bookings
+    columns:
+      - name: booking_id
+        data_tests:
+          - not_null
+          - unique
+
+      - name: listing_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('bronze_listings')
+              field: listing_id
+              config:
+                severity: warn
+
+      - name: booking_status
+        data_tests:
+          - not_null
+          - accepted_values:
+              values:
+                - 'confirmed'
+                - 'cancelled'
+              config:
+                severity: warn
+
+  - name: bronze_listings
+    columns:
+      - name: listing_id
+        data_tests:
+          - not_null
+          - unique
+
+      - name: host_id
+        data_tests:
+          - not_null
+          - relationships:
+              to: ref('bronze_hosts')
+              field: host_id
+              config:
+                severity: warn
+
+      - name: property_type
+        data_tests:
+          - accepted_values:
+              values:
+                - 'Apartment'
+                - 'Condo'
+                - 'House'
+              config:
+                severity: warn
+
+      - name: room_type
+        data_tests:
+          - accepted_values:
+              values:
+                - 'Entire home'
+                - 'Private room'
+              config:
+                severity: warn
+
+  - name: bronze_hosts
+    columns:
+      - name: host_id
+        data_tests:
+          - not_null
+          - unique
+
+      - name: is_superhost
+        data_tests:
+          - accepted_values:
+              values:
+                - true
+                - false
+              quote: false
+              config:
+                severity: warn

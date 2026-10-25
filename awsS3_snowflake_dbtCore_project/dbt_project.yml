@@ -1,0 +1,34 @@
+name: 'awsS3_snowflake_dbtCore_project'
+version: '1.0.0'
+
+profile: 'awsS3_snowflake_dbtCore_project'
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:       
+  - "target"
+  - "dbt_packages"
+
+models:
+  awsS3_snowflake_dbtCore_project:
+    # 1. Bronze Layer (Raw Ingestion)
+    1.bronze:
+      +materialized: table          # Best practice: Change view to table for performance on raw layers
+      +schema: medallion_bronze
+
+    # 2. Silver Layer (Cleaned & Conformed)
+    2.silver:
+      +materialized: table           # Views work well here if data transformations are straightforward
+      +schema: medallion_silver
+
+    # 3. Gold Layer (Business Analytics / Dimension & Fact Tables)
+    3.gold:
+      +materialized: table          # Best practice: Table or Incremental for business-facing BI tools
+      +schema: medallion_gold
+      ephemeral:
+        +materialized: ephemeral

@@ -1,0 +1,38 @@
+version: 2
+
+sources:
+  - name: raw
+
+    database: DBT_ANALYTICS_PLATFORM_BUCKET
+
+    schema: STAGING
+
+    description: "Raw ingested data layer for the platform's rental and reservation services."
+    
+    tables:
+      - name: bookings
+        description: "Raw transactional records of reservation bookings, stay dates, and guest payments."
+
+      - name: hosts
+        description: "Raw account and profile information for property hosts and owners."
+
+      - name: listings
+        description: "Raw property catalog data including rental specifications, pricing, and locations."
+
+# How to Use Sources in SQL
+#
+# Instead of hardcoding database and schema names,
+# use the source() function in your staging models.
+#
+# Example SQL:
+# SELECT *
+# FROM {{ source('raw_shop', 'orders') }}
+#
+# Key Benefits
+# - Data Lineage: Connects raw tables to downstream models.
+# - Freshness Testing: Configure warn_after and error_after thresholds.
+# - Centralized Maintenance: Manage source names in one YAML file.
+#
+# Next Steps
+# Configure the source for your data warehouse and add freshness
+# settings or custom tests as needed.
